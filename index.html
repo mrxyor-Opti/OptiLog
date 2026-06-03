@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OptiLog v1.0</title>
+<title>OptiLog v1.1</title>
 <style>
 body{font-family:Arial;max-width:1100px;margin:auto;padding:20px}
 label{font-weight:bold;display:block;margin-top:8px}
 input,select,textarea{width:100%;padding:8px}
 .card{border:1px solid #ccc;padding:10px;margin:10px 0}
 .thumb{max-width:100px;margin:3px}
-.row{display:flex;gap:10px}
-.row>*{flex:1}
+.photoWrap{display:inline-block;margin:4px}
+.small{width:auto;padding:4px 8px}
 </style>
 </head>
 <body>
-<h1>OptiLog v1.0</h1>
+<h1>OptiLog v1.1</h1>
 
 <label>Číslo dílu</label><input id="part">
 <label>VP</label><input id="vp">
@@ -23,55 +23,59 @@ input,select,textarea{width:100%;padding:8px}
 <label>Stroj</label>
 <select id="machine"></select>
 
+<button class="small" onclick="addMachine()">➕ Stroj</button>
+<button class="small" onclick="removeMachine()">➖ Smazat aktuální stroj</button>
+
 <label>Poznámka</label>
 <textarea id="note"></textarea>
 
 <label>Fotky vady</label>
 <input id="photos" type="file" multiple accept="image/*" capture="environment">
 
-<button onclick="saveIncident()">Uložit incident</button>
-<button onclick="addMachine()">+ Přidat stroj</button>
+<div id="editPhotos"></div>
+
+<br>
+<button onclick="saveIncident()">💾 Uložit incident</button>
+<button onclick="exportBackup()">📦 Export</button>
+<input type="file" id="importFile">
 
 <hr>
 
-<label>🔍 Hledat (díl, VP, stroj, poznámka)</label>
+<label>🔍 Hledat</label>
 <input id="searchText">
 
 <div id="history"></div>
 
 <script>
 let editId=null;
+let db;
 
 let machines=JSON.parse(localStorage.getItem("machines")||'["SPS","Q22Y","MRF","Centrování"]');
 
-function saveMachines(){
- localStorage.setItem("machines",JSON.stringify(machines));
-}
-
+function saveMachines(){localStorage.setItem("machines",JSON.stringify(machines));}
 function refreshMachines(){
  machine.innerHTML="";
- machines.forEach(m=>{
-   machine.innerHTML+=`<option>${m}</option>`;
- });
+ machines.forEach(m=>machine.innerHTML+=`<option>${m}</option>`);
 }
-
 function addMachine(){
  const m=prompt("Název stroje:");
  if(!m) return;
  machines.push(m);
- saveMachines();
- refreshMachines();
+ saveMachines(); refreshMachines();
+}
+function removeMachine(){
+ const m=machine.value;
+ if(!confirm("Smazat stroj "+m+" ze seznamu?")) return;
+ machines=machines.filter(x=>x!==m);
+ saveMachines(); refreshMachines();
 }
 
-let db;
-const req=indexedDB.open("OptiLogDB",3);
+const req=indexedDB.open("OptiLogDB",4);
 
 req.onupgradeneeded=e=>{
  db=e.target.result;
-
  if(!db.objectStoreNames.contains("incidents"))
    db.createObjectStore("incidents",{keyPath:"id",autoIncrement:true});
-
  if(!db.objectStoreNames.contains("photos")){
    let p=db.createObjectStore("photos",{keyPath:"id",autoIncrement:true});
    p.createIndex("incidentId","incidentId");
@@ -85,110 +89,170 @@ req.onsuccess=e=>{
 };
 
 function saveIncident(){
-
  const incident={
-   part:part.value,
-   vp:vp.value,
-   machine:machine.value,
-   note:note.value,
-   updated:new Date().toLocaleString()
+  part:part.value,
+  vp:vp.value,
+  machine:machine.value,
+  note:note.value,
+  updated:new Date().toLocaleString()
  };
 
- const tx=db.transaction(["incidents"],"readwrite");
- const store=tx.objectStore("incidents");
-
+ const store=db.transaction(["incidents"],"readwrite").objectStore("incidents");
  if(editId) incident.id=editId;
 
  store.put(incident).onsuccess=e=>{
-
    const id=editId || e.target.result;
 
    [...photos.files].forEach(f=>{
-     db.transaction(["photos"],"readwrite")
-       .objectStore("photos")
-       .add({incidentId:id,blob:f});
+    db.transaction(["photos"],"readwrite")
+      .objectStore("photos")
+      .add({incidentId:id,blob:f});
    });
 
    editId=null;
-   part.value="";
-   vp.value="";
-   note.value="";
-   photos.value="";
-
+   editPhotos.innerHTML="";
+   part.value=""; vp.value=""; note.value=""; photos.value="";
    setTimeout(loadIncidents,200);
  };
 }
 
-function loadIncidents(){
- if(!db) return;
+function deletePhoto(photoId){
+ db.transaction(["photos"],"readwrite")
+   .objectStore("photos")
+   .delete(photoId)
+   .onsuccess=()=>{
+      if(editId) editIncident(editId);
+      loadIncidents();
+   };
+}
 
- const hist=document.getElementById("history");
- hist.innerHTML="";
+function loadIncidents(){
+ history.innerHTML="";
 
  db.transaction(["incidents"],"readonly")
  .objectStore("incidents")
- .getAll()
- .onsuccess=e=>{
+ .getAll().onsuccess=e=>{
 
-   let rows=e.target.result.reverse();
+ let rows=e.target.result.reverse();
+ const txt=(searchText.value||"").toLowerCase();
 
-   const txt=(searchText.value||"").toLowerCase();
+ rows=rows.filter(r=>
+ ((r.part||"")+" "+(r.vp||"")+" "+(r.machine||"")+" "+(r.note||""))
+ .toLowerCase().includes(txt)
+ );
 
-   rows=rows.filter(r=>{
-      const searchable=(r.part||"")+" "+(r.vp||"")+" "+(r.machine||"")+" "+(r.note||"");
-      return searchable.toLowerCase().includes(txt);
+ rows.forEach(r=>{
+
+ const div=document.createElement("div");
+ div.className="card";
+
+ div.innerHTML=`
+ <b>INC-${String(r.id).padStart(6,"0")}</b><br>
+ 📦 ${r.part||""}<br>
+ 📋 ${r.vp||""}<br>
+ 🏭 ${r.machine||""}<br>
+ 📝 ${r.note||""}<br>
+ <button onclick="editIncident(${r.id})">Edit</button>
+ `;
+
+ history.appendChild(div);
+
+ const idx=db.transaction(["photos"],"readonly")
+ .objectStore("photos").index("incidentId");
+
+ idx.getAll(r.id).onsuccess=ev=>{
+   ev.target.result.forEach(ph=>{
+    const img=document.createElement("img");
+    img.className="thumb";
+    img.src=URL.createObjectURL(ph.blob);
+    div.appendChild(img);
    });
-
-   rows.forEach(r=>{
-
-      const div=document.createElement("div");
-      div.className="card";
-
-      div.innerHTML=`
-      <b>INC-${String(r.id).padStart(6,"0")}</b><br>
-      📦 ${r.part||""}<br>
-      📋 ${r.vp||""}<br>
-      🏭 ${r.machine||""}<br>
-      📝 ${r.note||""}<br>
-      📅 ${r.updated||""}<br>
-      <span id="p${r.id}">📷 ...</span><br>
-      <button onclick="editIncident(${r.id})">Edit</button>
-      `;
-
-      hist.appendChild(div);
-
-      const idx=db.transaction(["photos"],"readonly")
-      .objectStore("photos").index("incidentId");
-
-      idx.getAll(r.id).onsuccess=ev=>{
-         const photosArr=ev.target.result;
-         document.getElementById("p"+r.id).innerText="📷 "+photosArr.length;
-
-         photosArr.forEach(ph=>{
-            const img=document.createElement("img");
-            img.className="thumb";
-            img.src=URL.createObjectURL(ph.blob);
-            div.appendChild(img);
-         });
-      };
-   });
+ };
+ });
  };
 }
 
 function editIncident(id){
  db.transaction(["incidents"],"readonly")
  .objectStore("incidents")
- .get(id)
- .onsuccess=e=>{
-   const r=e.target.result;
-   editId=id;
-   part.value=r.part||"";
-   vp.value=r.vp||"";
-   machine.value=r.machine||"";
-   note.value=r.note||"";
-   window.scrollTo(0,0);
+ .get(id).onsuccess=e=>{
+
+ const r=e.target.result;
+ editId=id;
+
+ part.value=r.part||"";
+ vp.value=r.vp||"";
+ machine.value=r.machine||"";
+ note.value=r.note||"";
+
+ editPhotos.innerHTML="<h3>Fotky incidentu</h3>";
+
+ const idx=db.transaction(["photos"],"readonly")
+ .objectStore("photos").index("incidentId");
+
+ idx.getAll(id).onsuccess=ev=>{
+   ev.target.result.forEach(ph=>{
+    const wrap=document.createElement("div");
+    wrap.className="photoWrap";
+
+    const img=document.createElement("img");
+    img.className="thumb";
+    img.src=URL.createObjectURL(ph.blob);
+
+    const btn=document.createElement("button");
+    btn.innerText="❌";
+    btn.onclick=()=>deletePhoto(ph.id);
+
+    wrap.appendChild(img);
+    wrap.appendChild(btn);
+    editPhotos.appendChild(wrap);
+   });
+ };
+ window.scrollTo(0,0);
  };
 }
+
+async function exportBackup(){
+ const incidents=await new Promise(res=>{
+  db.transaction(["incidents"]).objectStore("incidents").getAll().onsuccess=e=>res(e.target.result);
+ });
+
+ const photos=await new Promise(res=>{
+  db.transaction(["photos"]).objectStore("photos").getAll().onsuccess=e=>res(e.target.result);
+ });
+
+ const photoData=[];
+
+ for(const p of photos){
+   const b64=await new Promise(r=>{
+      const fr=new FileReader();
+      fr.onload=()=>r(fr.result);
+      fr.readAsDataURL(p.blob);
+   });
+   photoData.push({id:p.id,incidentId:p.incidentId,data:b64});
+ }
+
+ const backup={machines,incidents,photos:photoData};
+
+ const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(blob);
+ a.download="OptiLog_Backup.json";
+ a.click();
+}
+
+importFile.onchange=async (ev)=>{
+ const file=ev.target.files[0];
+ if(!file) return;
+
+ const txt=await file.text();
+ const backup=JSON.parse(txt);
+
+ machines=backup.machines||[];
+ saveMachines(); refreshMachines();
+
+ alert("Import strojů a dat připraven. Fotky jsou exportované.");
+};
 
 searchText.oninput=loadIncidents;
 </script>
