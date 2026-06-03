@@ -127,7 +127,8 @@ function deletePhoto(photoId){
 }
 
 function loadIncidents(){
- history.innerHTML="";
+ const historyDiv=document.getElementById("history");
+historyDiv.innerHTML="";
 
  db.transaction(["incidents"],"readonly")
  .objectStore("incidents")
@@ -155,7 +156,7 @@ function loadIncidents(){
  <button onclick="editIncident(${r.id})">Edit</button>
  `;
 
- history.appendChild(div);
+ historyDiv.appendChild(div);
 
  const idx=db.transaction(["photos"],"readonly")
  .objectStore("photos").index("incidentId");
