@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="cs">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OptiLog v0.5.0</title>
+<title>OptiLog v1.0</title>
 <style>
 body{font-family:Arial;max-width:1100px;margin:auto;padding:20px}
 label{font-weight:bold;display:block;margin-top:8px}
@@ -16,25 +15,18 @@ input,select,textarea{width:100%;padding:8px}
 </style>
 </head>
 <body>
-<h1>OptiLog v0.5.0</h1>
+<h1>OptiLog v1.0</h1>
 
 <label>Číslo dílu</label><input id="part">
-<label>Zakázka</label><input id="order">
+<label>VP</label><input id="vp">
 
 <label>Stroj</label>
 <select id="machine"></select>
 
-<label>Status</label>
-<select id="status">
-<option>Otevřený</option>
-<option>Vyřešený</option>
-<option>Zmetek</option>
-</select>
-
 <label>Poznámka</label>
 <textarea id="note"></textarea>
 
-<label>Fotky</label>
+<label>Fotky vady</label>
 <input id="photos" type="file" multiple accept="image/*" capture="environment">
 
 <button onclick="saveIncident()">Uložit incident</button>
@@ -42,21 +34,8 @@ input,select,textarea{width:100%;padding:8px}
 
 <hr>
 
-<div class="row">
-<div>
-<label>Filtr stroj</label>
-<select id="machineFilter"></select>
-</div>
-<div>
-<label>Filtr status</label>
-<select id="statusFilter">
-<option value="">Vše</option>
-<option>Otevřený</option>
-<option>Vyřešený</option>
-<option>Zmetek</option>
-</select>
-</div>
-</div>
+<label>🔍 Hledat (díl, VP, stroj, poznámka)</label>
+<input id="searchText">
 
 <div id="history"></div>
 
@@ -64,16 +43,15 @@ input,select,textarea{width:100%;padding:8px}
 let editId=null;
 
 let machines=JSON.parse(localStorage.getItem("machines")||'["SPS","Q22Y","MRF","Centrování"]');
+
 function saveMachines(){
  localStorage.setItem("machines",JSON.stringify(machines));
 }
 
 function refreshMachines(){
  machine.innerHTML="";
- machineFilter.innerHTML='<option value="">Vše</option>';
  machines.forEach(m=>{
    machine.innerHTML+=`<option>${m}</option>`;
-   machineFilter.innerHTML+=`<option>${m}</option>`;
  });
 }
 
@@ -86,10 +64,11 @@ function addMachine(){
 }
 
 let db;
-const req=indexedDB.open("OptiLogDB",2);
+const req=indexedDB.open("OptiLogDB",3);
 
 req.onupgradeneeded=e=>{
  db=e.target.result;
+
  if(!db.objectStoreNames.contains("incidents"))
    db.createObjectStore("incidents",{keyPath:"id",autoIncrement:true});
 
@@ -106,11 +85,11 @@ req.onsuccess=e=>{
 };
 
 function saveIncident(){
+
  const incident={
    part:part.value,
-   order:order.value,
+   vp:vp.value,
    machine:machine.value,
-   status:status.value,
    note:note.value,
    updated:new Date().toLocaleString()
  };
@@ -121,6 +100,7 @@ function saveIncident(){
  if(editId) incident.id=editId;
 
  store.put(incident).onsuccess=e=>{
+
    const id=editId || e.target.result;
 
    [...photos.files].forEach(f=>{
@@ -131,7 +111,7 @@ function saveIncident(){
 
    editId=null;
    part.value="";
-   order.value="";
+   vp.value="";
    note.value="";
    photos.value="";
 
@@ -152,10 +132,11 @@ function loadIncidents(){
 
    let rows=e.target.result.reverse();
 
+   const txt=(searchText.value||"").toLowerCase();
+
    rows=rows.filter(r=>{
-      const mf=machineFilter.value;
-      const sf=statusFilter.value;
-      return (!mf||r.machine===mf)&&(!sf||r.status===sf);
+      const searchable=(r.part||"")+" "+(r.vp||"")+" "+(r.machine||"")+" "+(r.note||"");
+      return searchable.toLowerCase().includes(txt);
    });
 
    rows.forEach(r=>{
@@ -163,17 +144,13 @@ function loadIncidents(){
       const div=document.createElement("div");
       div.className="card";
 
-      const statusIcon =
-        r.status==="Otevřený"?"🟡":
-        r.status==="Vyřešený"?"🟢":"🔴";
-
       div.innerHTML=`
       <b>INC-${String(r.id).padStart(6,"0")}</b><br>
-      🏭 ${r.machine}<br>
       📦 ${r.part||""}<br>
-      📋 ${r.order||""}<br>
-      ${statusIcon} ${r.status}<br>
+      📋 ${r.vp||""}<br>
+      🏭 ${r.machine||""}<br>
       📝 ${r.note||""}<br>
+      📅 ${r.updated||""}<br>
       <span id="p${r.id}">📷 ...</span><br>
       <button onclick="editIncident(${r.id})">Edit</button>
       `;
@@ -206,16 +183,14 @@ function editIncident(id){
    const r=e.target.result;
    editId=id;
    part.value=r.part||"";
-   order.value=r.order||"";
+   vp.value=r.vp||"";
    machine.value=r.machine||"";
-   status.value=r.status||"Otevřený";
    note.value=r.note||"";
    window.scrollTo(0,0);
  };
 }
 
-machineFilter.onchange=loadIncidents;
-statusFilter.onchange=loadIncidents;
+searchText.oninput=loadIncidents;
 </script>
 </body>
 </html>
