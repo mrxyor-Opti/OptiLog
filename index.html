@@ -1,0 +1,69 @@
+<!DOCTYPE html><html><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>OptiLog PWA v0.6</title></head>
+<body>
+<h1>OptiLog PWA v0.6</h1>
+<p>Mobilní prototyp s focením, exportem a importem.</p>
+
+<input id='photo' type='file' accept='image/*' capture='environment'><br><br>
+<select id='machine'>
+<option>SPS</option><option>Q22Y</option><option>MRF</option>
+</select><br><br>
+<textarea id='note' placeholder='Poznámka'></textarea><br><br>
+
+<button onclick='saveIncident()'>Uložit</button>
+<button onclick='exportData()'>Export</button>
+<input id='importFile' type='file' onchange='importData(event)'>
+
+<input id='search' placeholder='Hledat' oninput='load()'>
+<div id='list'></div>
+
+<script>
+let incidents=JSON.parse(localStorage.getItem('optilog_incidents')||'[]');
+
+function db(){localStorage.setItem('optilog_incidents',JSON.stringify(incidents));}
+
+function saveIncident(){
+ const f=document.getElementById('photo').files[0];
+ if(!f){alert('Vyber fotku');return;}
+ const r=new FileReader();
+ r.onload=(e)=>{
+  incidents.push({
+   id:Date.now(),
+   machine:machine.value,
+   note:note.value,
+   photo:e.target.result
+  });
+  db(); load();
+ };
+ r.readAsDataURL(f);
+}
+
+function load(){
+ const q=(search.value||'').toLowerCase();
+ list.innerHTML='';
+ incidents.slice().reverse().filter(x=>
+ (x.machine+' '+x.note).toLowerCase().includes(q)
+ ).forEach(x=>{
+  list.innerHTML += '<div><b>'+x.machine+'</b> '+x.note+'<br><img src="'+x.photo+'" width="120"></div><hr>';
+ });
+}
+
+function exportData(){
+ const blob=new Blob([JSON.stringify(incidents)],{type:'application/json'});
+ const a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);
+ a.download='OptiLog_Backup.json';
+ a.click();
+}
+
+function importData(ev){
+ const f=ev.target.files[0];
+ const r=new FileReader();
+ r.onload=(e)=>{incidents=JSON.parse(e.target.result);db();load();};
+ r.readAsText(f);
+}
+
+load();
+</script>
+</body></html>
